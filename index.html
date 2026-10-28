@@ -1,36 +1,423 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="h-full bg-slate-950 text-slate-100">
 <head>
     <meta charset="UTF-8">
-    <title>Mon Premier Jeu</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Border Clash - Collision Frontalière</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- D3.js v7 & TopoJSON v3 CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,700;0,800;1,800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+
     <style>
-        body {
-            background-color: #1a1a1a;
-            color: white;
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin-top: 100px;
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .font-mono-code { font-family: 'JetBrains Mono', monospace; }
+
+        .ocean { fill: #030712; }
+        .graticule { fill: none; stroke: #1e293b; stroke-width: 0.5px; stroke-dasharray: 2 4; }
+        .country-path { stroke: #0f172a; stroke-width: 0.8px; transition: stroke 0.3s ease, stroke-width 0.3s ease; cursor: pointer; }
+        .country-path:hover { stroke: #60a5fa; stroke-width: 1.5px; }
+        .country-attacker { stroke: #3b82f6 !important; stroke-width: 2.5px !important; filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.8)); }
+        .country-defender { stroke: #ef4444 !important; stroke-width: 2.5px !important; filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.8)); }
+
+        .dice-face {
+            width: 34px;
+            height: 34px;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+            border: 2px solid #94a3b8;
         }
-        button {
-            padding: 10px 20px;
-            font-size: 18px;
-            cursor: pointer;
+        .dice-dot { width: 5px; height: 5px; background-color: #0f172a; border-radius: 50%; }
+        .pip-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); width: 24px; height: 24px; align-items: center; justify-items: center; }
+
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            20% { transform: translate(-2px, -1px) rotate(-1deg); }
+            40% { transform: translate(2px, 1px) rotate(1deg); }
+            60% { transform: translate(-1px, 2px) rotate(0deg); }
+            80% { transform: translate(1px, -1px) rotate(-1deg); }
+            100% { transform: translate(0, 0) rotate(0deg); }
         }
+        .rolling { animation: shake 0.15s infinite; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
     </style>
 </head>
-<body>
+<body class="h-full flex flex-col overflow-hidden select-none bg-slate-950 text-slate-100">
 
-    <h1>Mon Mini Border Clash</h1>
-    <p id="resultat">Clique sur le bouton pour lancer le dé !</p>
-    <button onclick="lancerDe()">Lancer le dé</button>
+    <!-- Top Bar -->
+    <header class="h-12 bg-slate-900/80 border-b border-slate-800 px-4 flex items-center justify-between backdrop-blur-md z-30">
+        <div class="flex items-center space-x-2.5">
+            <div class="p-1.5 bg-gradient-to-br from-red-600 to-amber-600 rounded-lg shadow-lg">
+                <i data-lucide="swords" class="w-4 h-4 text-white"></i>
+            </div>
+            <h1 class="font-black text-sm tracking-wider text-white">COLLISION <span class="text-amber-500">FRONTALIÈRE</span></h1>
+        </div>
 
+        <div class="flex items-center space-x-3">
+            <div class="flex items-center space-x-2 bg-slate-950/60 px-2.5 py-1 rounded-lg border border-slate-800">
+                <i data-lucide="gauge" class="w-3.5 h-3.5 text-slate-400"></i>
+                <input type="range" id="speed-slider" min="500" max="3000" step="100" value="1800" class="w-20 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+                <span id="speed-val" class="text-[10px] font-mono-code text-slate-400">1.8s</span>
+            </div>
+
+            <button id="btn-auto-play" class="flex items-center space-x-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow transition">
+                <i data-lucide="play" class="w-3.5 h-3.5" id="play-icon"></i>
+                <span id="play-btn-text">Lancer le combat</span>
+            </button>
+            <button id="btn-next-step" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-lg border border-slate-700 transition">
+                Choc suivant
+            </button>
+            <button id="btn-sound-toggle" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700">
+                <i data-lucide="volume-2" class="w-3.5 h-3.5" id="sound-icon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Map Workspace -->
+    <div class="flex-1 relative flex overflow-hidden">
+        
+        <!-- Interactive Fullscreen SVG Map -->
+        <div id="map-container" class="absolute inset-0 z-0 cursor-grab active:cursor-grabbing"></div>
+
+        <!-- Floating Battle HUD Panel (Top-Left) -->
+        <div class="absolute top-4 left-4 z-20 w-80 bg-slate-900/90 border border-slate-800/90 rounded-2xl p-3 backdrop-blur-md shadow-2xl flex flex-col space-y-2.5">
+            
+            <div class="grid grid-cols-2 gap-2 items-center">
+                <!-- Attacker Info -->
+                <div class="flex items-center space-x-2 bg-slate-950/80 p-1.5 rounded-xl border border-blue-500/30">
+                    <img id="attacker-flag" src="https://flagcdn.com/w80/fr.png" class="w-8 h-5 object-cover rounded border border-slate-700">
+                    <div class="overflow-hidden">
+                        <span class="text-[8px] font-extrabold uppercase text-blue-400 block">ATTAQUANT</span>
+                        <h2 id="attacker-name" class="font-bold text-xs text-white truncate">France</h2>
+                    </div>
+                </div>
+
+                <!-- Defender Info -->
+                <div class="flex items-center space-x-2 bg-slate-950/80 p-1.5 rounded-xl border border-red-500/30">
+                    <img id="defender-flag" src="https://flagcdn.com/w80/es.png" class="w-8 h-5 object-cover rounded border border-slate-700">
+                    <div class="overflow-hidden">
+                        <span class="text-[8px] font-extrabold uppercase text-red-400 block">DÉFENSEUR</span>
+                        <h2 id="defender-name" class="font-bold text-xs text-white truncate">Espagne</h2>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-2 gap-2 text-[11px] bg-slate-950/60 p-1.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center px-1">
+                    <span class="text-slate-400">Pop: <span id="attacker-pop" class="font-mono-code font-bold text-slate-200">67.7M</span></span>
+                    <span id="attacker-mult" class="font-mono-code font-extrabold text-amber-400">x1.2</span>
+                </div>
+                <div class="flex justify-between items-center px-1">
+                    <span class="text-slate-400">Pop: <span id="defender-pop" class="font-mono-code font-bold text-slate-200">47.4M</span></span>
+                    <span id="defender-mult" class="font-mono-code font-extrabold text-amber-400">x1.0</span>
+                </div>
+            </div>
+
+            <!-- Dice Arena -->
+            <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 flex flex-col space-y-1.5">
+                <div class="grid grid-cols-2 gap-3 items-center">
+                    <div class="flex flex-col items-center">
+                        <div class="flex justify-between w-full px-1 text-[10px] font-bold text-slate-400">
+                            <span>PTS</span><span id="attacker-points" class="font-mono-code text-blue-400">0.0</span>
+                        </div>
+                        <div class="flex space-x-1 mt-1" id="attacker-dice-container">
+                            <div class="dice-face" id="att-die-1"></div>
+                            <div class="dice-face" id="att-die-2"></div>
+                            <div class="dice-face" id="att-die-3"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col items-center">
+                        <div class="flex justify-between w-full px-1 text-[10px] font-bold text-slate-400">
+                            <span>PTS</span><span id="defender-points" class="font-mono-code text-red-400">0.0</span>
+                        </div>
+                        <div class="flex space-x-1 mt-1" id="defender-dice-container">
+                            <div class="dice-face" id="def-die-1"></div>
+                            <div class="dice-face" id="def-die-2"></div>
+                            <div class="dice-face" id="def-die-3"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Banner Announcement -->
+            <div id="winner-banner" class="hidden bg-emerald-500/20 border border-emerald-500/40 rounded-xl p-2 text-center flex items-center justify-center space-x-1.5">
+                <i data-lucide="trophy" class="w-4 h-4 text-amber-400"></i>
+                <span id="winner-text" class="font-bold text-xs text-emerald-300 truncate">La France annexe l'Espagne !</span>
+            </div>
+        </div>
+
+        <!-- Leaderboard Widget (Top-Right) -->
+        <div class="absolute top-4 right-4 z-20 w-72 bg-slate-900/90 border border-slate-800/90 rounded-2xl p-3 backdrop-blur-md shadow-2xl flex flex-col space-y-2 max-h-[50vh]">
+            <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+                <h3 class="font-bold text-xs uppercase tracking-wider text-white flex items-center space-x-1.5">
+                    <i data-lucide="bar-chart-3" class="w-3.5 h-3.5 text-amber-500"></i>
+                    <span>Classement des conquêtes</span>
+                </h3>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scrollbar space-y-1" id="leaderboard-container">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Zoom Controls (Bottom-Left) -->
+        <div class="absolute bottom-4 left-4 z-20 flex space-x-1 bg-slate-900/90 backdrop-blur p-1 rounded-xl border border-slate-800">
+            <button id="btn-zoom-in" title="Zoomer" class="p-1.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"><i data-lucide="plus" class="w-4 h-4"></i></button>
+            <button id="btn-zoom-out" title="Dézoomer" class="p-1.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"><i data-lucide="minus" class="w-4 h-4"></i></button>
+            <button id="btn-reset-view" title="Réinitialiser" class="p-1.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"><i data-lucide="rotate-ccw" class="w-4 h-4"></i></button>
+        </div>
+    </div>
+
+    <!-- JavaScript Engine -->
     <script>
-        function lancerDe() {
-            // Génère un nombre aléatoire entre 1 et 6
-            let de = Math.floor(Math.random() * 6) + 1;
-            document.getElementById("resultat").innerText = "Tu as fait un : " + de;
-        }
-    </script>
+        const COUNTRIES = [
+            { id: "250", name: "France", code: "fra", pop: 67750000, flag: "fr", borders: ["276", "724", "380", "056", "442", "756"] },
+            { id: "276", name: "Allemagne", code: "deu", pop: 83200000, flag: "de", borders: ["250", "056", "528", "756", "040", "203", "616", "208"] },
+            { id: "724", name: "Espagne", code: "esp", pop: 47420000, flag: "es", borders: ["250", "620"] },
+            { id: "380", name: "Italie", code: "ita", pop: 59110000, flag: "it", borders: ["250", "756", "040", "705"] },
+            { id: "300", name: "Grèce", code: "grc", pop: 10716322, flag: "gr", borders: ["100", "807", "792", "008"] },
+            { id: "100", name: "Bulgarie", code: "bgr", pop: 6975761, flag: "bg", borders: ["300", "642", "792", "688", "807"] },
+            { id: "792", name: "Turquie", code: "tur", pop: 84780000, flag: "tr", borders: ["300", "100", "368", "760", "364", "051", "031"] },
+            { id: "642", name: "Roumanie", code: "rou", pop: 19120000, flag: "ro", borders: ["100", "348", "804", "498", "688"] },
+            { id: "348", name: "Hongrie", code: "hun", pop: 9710000, flag: "hu", borders: ["040", "703", "804", "642", "688", "191", "705"] },
+            { id: "616", name: "Pologne", code: "pol", pop: 37750000, flag: "pl", borders: ["276", "203", "703", "804", "112", "643"] },
+            { id: "804", name: "Ukraine", code: "ukr", pop: 41170000, flag: "ua", borders: ["616", "703", "348", "642", "498", "112", "643"] },
+            { id: "643", name: "Russie", code: "rus", pop: 143400000, flag: "ru", borders: ["804", "112", "233", "428", "440", "616", "398", "496", "156"] },
+            { id: "840", name: "États-Unis", code: "usa", pop: 331900000, flag: "us", borders: ["124", "484"] },
+            { id: "124", name: "Canada", code: "can", pop: 38250000, flag: "ca", borders: ["840"] },
+            { id: "484", name: "Mexique", code: "mex", pop: 126700000, flag: "mx", borders: ["840", "320", "084"] },
+            { id: "076", name: "Brésil", code: "bra", pop: 214300000, flag: "br", borders: ["032", "068", "170", "254", "328", "600", "604", "740", "858", "862"] },
+            { id: "032", name: "Argentine", code: "arg", pop: 45810000, flag: "ar", borders: ["076", "068", "152", "600", "858"] },
+            { id: "156", name: "Chine", code: "chn", pop: 1412000000, flag: "cn", borders: ["643", "496", "356", "524", "050", "704", "418", "352", "398", "417", "762", "004", "340"] },
+            { id: "356", name: "Inde", code: "ind", pop: 1408000000, flag: "in", borders: ["156", "586", "524", "050", "104", "064"] },
+            { id: "364", name: "Iran", code: "irn", pop: 87920000, flag: "ir", borders: ["792", "368", "586", "004", "795", "860", "031"] }
+        ];
 
-</body>
-</html>
+        let countryState = {};
+        let isAutoPlaying = false;
+        let soundEnabled = true;
+        let stepDelay = 1800;
+        let svg, gMap, projection, pathGenerator, zoomBehavior, activeTimer;
+
+        // Web Audio Synthesizer for SFX
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playDiceSound() {
+            if (!soundEnabled) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(150 + Math.random() * 200, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.08);
+            } catch (e) {}
+        }
+
+        function playWinSound() {
+            if (!soundEnabled) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch (e) {}
+        }
+
+        window.onload = function() {
+            lucide.createIcons();
+            initState();
+            initMap();
+            setupEvents();
+            updateLeaderboard();
+        };
+
+        function initState() {
+            COUNTRIES.forEach(c => {
+                countryState[c.id] = { original: c, wins: 0, currentOwner: c };
+            });
+        }
+
+        function initMap() {
+            const container = document.getElementById('map-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            projection = d3.geoMercator().scale(w / 6.2).translate([w / 2.1, h / 1.6]);
+            pathGenerator = d3.geoPath().projection(projection);
+
+            svg = d3.select('#map-container').append('svg').attr('width', '100%').attr('height', '100%').attr('viewBox', `0 0 ${w} ${h}`);
+
+            const defs = svg.append('defs');
+            COUNTRIES.forEach(c => {
+                const pat = defs.append('pattern').attr('id', `flag-pat-${c.id}`).attr('width', '80').attr('height', '50').attr('patternUnits', 'userSpaceOnUse');
+                pat.append('image').attr('href', `https://flagcdn.com/w160/${c.flag}.png`).attr('width', '80').attr('height', '50').attr('preserveAspectRatio', 'none');
+            });
+
+            gMap = svg.append('g');
+            gMap.append('path').datum({type: 'Sphere'}).attr('class', 'ocean').attr('d', pathGenerator);
+            gMap.append('path').datum(d3.geoGraticule().step([20, 20])).attr('class', 'graticule').attr('d', pathGenerator);
+
+            zoomBehavior = d3.zoom().scaleExtent([0.8, 12]).on('zoom', e => gMap.attr('transform', e.transform));
+            svg.call(zoomBehavior);
+
+            d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(topo => {
+                const features = topojson.feature(topo, topo.objects.countries).features;
+                gMap.selectAll('.country-path')
+                    .data(features)
+                    .enter()
+                    .append('path')
+                    .attr('class', 'country-path')
+                    .attr('id', d => `c-path-${d.id}`)
+                    .attr('d', pathGenerator)
+                    .style('fill', d => {
+                        const match = COUNTRIES.find(c => c.id === d.id);
+                        return match ? `url(#flag-pat-${match.id})` : '#1e293b';
+                    });
+
+                executeRound();
+            });
+        }
+
+        function executeRound() {
+            const list = COUNTRIES.filter(c => countryState[c.id]);
+            const attacker = list[Math.floor(Math.random() * list.length)];
+            const neighbors = COUNTRIES.filter(c => attacker.borders.includes(c.id));
+            const defender = neighbors.length > 0 ? neighbors[Math.floor(Math.random() * neighbors.length)] : list.find(c => c.id !== attacker.id);
+
+            highlight(attacker.id, defender.id);
+
+            document.getElementById('attacker-flag').src = `https://flagcdn.com/w80/${attacker.flag}.png`;
+            document.getElementById('attacker-name').innerText = attacker.name;
+            document.getElementById('attacker-pop').innerText = (attacker.pop / 1e6).toFixed(1) + 'M';
+
+            document.getElementById('defender-flag').src = `https://flagcdn.com/w80/${defender.flag}.png`;
+            document.getElementById('defender-name').innerText = defender.name;
+            document.getElementById('defender-pop').innerText = (defender.pop / 1e6).toFixed(1) + 'M';
+
+            document.getElementById('winner-banner').classList.add('hidden');
+
+            playDiceSound();
+
+            const attDice = [d6(), d6(), d6()];
+            const defDice = [d6(), d6(), d6()];
+
+            renderDice([document.getElementById('att-die-1'), document.getElementById('att-die-2'), document.getElementById('att-die-3')], attDice);
+            renderDice([document.getElementById('def-die-1'), document.getElementById('def-die-2'), document.getElementById('def-die-3')], defDice);
+
+            const attSum = attDice.reduce((a, b) => a + b, 0);
+            const defSum = defDice.reduce((a, b) => a + b, 0);
+
+            document.getElementById('attacker-points').innerText = attSum.toFixed(1);
+            document.getElementById('defender-points').innerText = defSum.toFixed(1);
+
+            const won = attSum >= defSum;
+            const winner = won ? attacker : defender;
+            const loser = won ? defender : attacker;
+
+            countryState[winner.id].wins += 1;
+
+            d3.select(`#c-path-${loser.id}`).transition().duration(400).style('fill', `url(#flag-pat-${winner.id})`);
+
+            playWinSound();
+            document.getElementById('winner-text').innerText = `${winner.name} annexe ${loser.name} !`;
+            document.getElementById('winner-banner').classList.remove('hidden');
+
+            updateLeaderboard();
+
+            if (isAutoPlaying) {
+                activeTimer = setTimeout(executeRound, stepDelay);
+            }
+        }
+
+        function highlight(attId, defId) {
+            gMap.selectAll('.country-path').classed('country-attacker', false).classed('country-defender', false);
+            d3.select(`#c-path-${attId}`).classed('country-attacker', true);
+            d3.select(`#c-path-${defId}`).classed('country-defender', true);
+        }
+
+        function d6() { return Math.floor(Math.random() * 6) + 1; }
+
+        function renderDice(els, rolls) {
+            const layouts = {1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8]};
+            els.forEach((el, i) => {
+                const pips = layouts[rolls[i]];
+                let html = '<div class="pip-grid">';
+                for (let j = 0; j < 9; j++) html += pips.includes(j) ? '<div class="dice-dot"></div>' : '<div></div>';
+                html += '</div>';
+                el.innerHTML = html;
+            });
+        }
+
+        function updateLeaderboard() {
+            const box = document.getElementById('leaderboard-container');
+            box.innerHTML = '';
+            const sorted = Object.values(countryState).sort((a, b) => b.wins - a.wins);
+            sorted.slice(0, 6).forEach((s, idx) => {
+                box.innerHTML += `
+                    <div class="flex items-center justify-between bg-slate-950/60 p-1.5 rounded-lg text-xs">
+                        <div class="flex items-center space-x-2">
+                            <span class="font-mono-code font-bold text-slate-500">#${idx+1}</span>
+                            <img src="https://flagcdn.com/w40/${s.original.flag}.png" class="w-5 h-3.5 object-cover rounded">
+                            <span class="font-semibold text-slate-200">${s.original.name}</span>
+                        </div>
+                        <span class="font-mono-code font-bold text-blue-400">${s.wins} Victoire${s.wins > 1 ? 's' : ''}</span>
+                    </div>`;
+            });
+        }
+
+        function setupEvents() {
+            document.getElementById('btn-auto-play').onclick = () => {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                isAutoPlaying = !isAutoPlaying;
+                document.getElementById('play-btn-text').innerText = isAutoPlaying ? 'Pause' : 'Lancer le combat';
+                document.getElementById('play-icon').setAttribute('data-lucide', isAutoPlaying ? 'pause' : 'play');
+                if (isAutoPlaying) executeRound();
+                else clearTimeout(activeTimer);
+                lucide.createIcons();
+            };
+
+            document.getElementById('btn-next-step').onclick = () => {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                clearTimeout(activeTimer);
+                executeRound();
+            };
+
+            document.getElementById('speed-slider').oninput = (e) => {
+                stepDelay = parseInt(e.target.value);
+                document.getElementById('speed-val').innerText = (stepDelay / 1000).toFixed(1) + 's';
+            };
+
+            document.getElementById('btn-sound-toggle').onclick = () => {
+                soundEnabled = !soundEnabled;
+                document.getElementById('sound-icon').setAttribute('data-lucide', soundEnabled ? 'volume-2' : 'volume-x');
+                lucide.createIcons();
+            };
